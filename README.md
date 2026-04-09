@@ -23,4 +23,4 @@ FlowGloss是一个能安静且智能地为你当前页面提供你可能需要�
 
 **安装核心 Python 库：**
 ```bash
-pip install mss Pillow pytesseract openai
+pip install -r requirements.txt
