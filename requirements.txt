@@ -1,0 +1,44 @@
+# e:\code\FlowGloss\requirements.txt
+"""
+项目依赖管理文件。
+
+技术简介：
+- 使用pip包管理器，声明项目所需的所有Python依赖
+- 支持版本锁定，确保环境一致性
+- 分为核心依赖、开发依赖和可选依赖
+
+模块功能：
+- 声明项目运行所需的第三方库及其版本要求
+- 支持依赖分组（基础依赖、GPU加速依赖、开发工具等）
+- 提供环境复现能力，确保不同机器上的一致性
+
+整体作用：
+标准化项目依赖管理，简化环境配置和部署流程。
+
+主要依赖分类：
+
+核心依赖：
+- pynput: 全局事件监听
+- mss: 高性能屏幕截图
+- opencv-python: 图像处理
+- paddleocr: OCR引擎
+- PySide6: GUI框架
+- httpx/openai: API客户端
+- pyyaml: 配置文件解析
+
+GPU加速依赖：
+- paddlepaddle-gpu: PaddleOCR GPU后端
+- torch: PyTorch深度学习框架（NER模型）
+- cuda-toolkit: CUDA支持
+
+开发依赖：
+- pytest: 单元测试
+- black: 代码格式化
+- mypy: 类型检查
+
+安装方法：
+pip install -r requirements.txt
+
+联系：
+在项目初始化时使用，确保所有依赖正确安装。
+"""
