@@ -1,0 +1,116 @@
+ 
+{
+  "$schema": "https://bendera.github.io/vscode-commit-message-editor/schemas/config-v1.schema.json",
+  "configVersion": "1",
+  "staticTemplate": [
+    "feat: 简短描述",
+    "",
+    "详细正文内容",
+    "",
+    "备注/关联 Issue"
+  ],
+  "dynamicTemplate": [
+    "{type}{scope}: {description}",
+    "",
+    "{body}",
+    "",
+    "{breaking_change}{footer}"
+  ],
+  "tokens": [
+    {
+      "label": "提交类型",
+      "name": "type",
+      "type": "enum",
+      "options": [
+        {
+          "label": "---",
+          "value": ""
+        },
+        {
+          "label": "feat",
+          "description": "✨ 新功能: 一个新的功能"
+        },
+        {
+          "label": "fix",
+          "description": "🐛 修复: 修复一个 Bug"
+        },
+        {
+          "label": "docs",
+          "description": "📝 文档: 仅文档相关的修改"
+        },
+        {
+          "label": "style",
+          "description": "💄 格式: 不影响代码含义的修改(空格、格式化、缺失分号等)"
+        },
+        {
+          "label": "refactor",
+          "description": "♻️ 重构: 既不修复 Bug 也不添加功能的代码修改"
+        },
+        {
+          "label": "perf",
+          "description": "⚡ 性能: 提高性能的代码修改"
+        },
+        {
+          "label": "test",
+          "description": "✅ 测试: 添加缺失的测试或修正现有的测试"
+        },
+        {
+          "label": "build",
+          "description": "📦 构建: 影响构建系统或外部依赖的更改(如: gulp, npm)"
+        },
+        {
+          "label": "ci",
+          "description": "🎡 CI: 更改 CI 配置文件和脚本"
+        },
+        {
+          "label": "chore",
+          "description": "🔨 事务: 更改构建过程或辅助工具，不影响生产代码"
+        },
+        {
+          "label": "revert",
+          "description": "⏪ 回退: 撤销之前的提交"
+        }
+      ],
+      "description": "请选择此次提交的类型"
+    },
+    {
+      "label": "影响范围",
+      "name": "scope",
+      "description": "例如 (logger) 或 (api)，说明此次改动影响的模块",
+      "type": "text",
+      "multiline": false,
+      "prefix": "(",
+      "suffix": ")"
+    },
+    {
+      "label": "简短描述",
+      "name": "description",
+      "description": "标题行，简要说明改动内容",
+      "type": "text",
+      "multiline": false
+    },
+    {
+      "label": "详细说明",
+      "name": "body",
+      "description": "可选的详细描述，解释改动原因和背景",
+      "type": "text",
+      "multiline": true,
+      "lines": 5,
+      "maxLines": 10
+    },
+    {
+      "label": "重大变更",
+      "name": "breaking_change",
+      "type": "boolean",
+      "value": "BREAKING CHANGE: ",
+      "default": false
+    },
+    {
+      "label": "备注/脚注",
+      "name": "footer",
+      "description": "例如关闭的 Issue 编号：Closes #123",
+      "type": "text",
+      "multiline": true
+    }
+  ]
+}
