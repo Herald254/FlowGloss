@@ -1,31 +1,37 @@
 # e:\code\FlowGloss\core\vision\ocr_engine.py
 """
-封装PaddleOCR（GPU版）。
+封装增强型 OCR 引擎（支持动态性能适配）。
 
 技术简介：
-- 基于PaddleOCR深度学习框架，支持GPU加速推理
-- 使用CUDA后端优化RTX 5060显卡性能
-- 实现文本检测（DBNet）和文本识别（CRNN）的端到端处理
+- 核心框架：基于 RapidOCR (ONNX Runtime)，提供跨硬件平台的极致推理兼容性
+- 动态加速：支持 NVIDIA CUDA (针对 RTX 5060 优化) 与 Intel OpenVINO 加速后端
+- 模型策略：采用"双级模型"架构
+    * [高性能] 加载 Server 版模型 (DBNetV3 + CRNN)，用于精确捕捉复杂排版
+    * [兼容性] 加载 Mobile 版模型，确保在无独显电脑上低延迟运行
 
 模块功能：
-- 执行光学字符识别，输出文本行及其对应的屏幕坐标
+- 获取屏幕截图或图像区域，执行端到端文字提取
+- 结构化输出：返回包含文本内容、四点式多边形坐标 (Bbox) 及识别置信度的字典列表
 - 支持多语言识别（中英文混合）
 - 提供置信度过滤，过滤低质量识别结果
-- 返回结构化的文本块信息（文本内容、位置坐标、置信度）
+- 硬件自感知：启动时自动检测 GPU/CPU 环境并按需初始化对应的推理后端
 
 整体作用：
-将视觉信号转变为数字信号，为后续NLP处理提供文本数据。
+作为 FlowGloss 视觉感知层的核心，将屏幕图像转化为带位置信息的数字化文本，
+为后续的语义解析（Cognition 模块）和屏幕取词标注提供基础数据。
 
 对外方法：
-- recognize(image_patch) -> list: 对图像区域进行OCR，返回包含text和coordinates的字典列表
+- recognize(image_patch) -> list[dict]: 对图像区域进行OCR，返回包含文本内容、四点式多边形坐标 (Bbox) 及识别置信度的结构化字典列表[{text, bbox, conf}, ...]
 - set_language(lang): 设置识别语言
+- set_performance_mode(mode): 手动强制切换模型
 - get_confidence_threshold(): 获取当前置信度阈值
+- get_engine_status(): 返回当前正在使用的硬件后端 (CUDA/CPU) 和模型级别
 
 联系：
-将结果通过IPC（multiprocessing.Queue）发回主进程，供Cognition模块使用。
+将结果通过 IPC (multiprocessing.Queue) 发回主进程，供下游 Cognition 模块进行知识关联。
 
-线程位置：
-Vision子进程/主线程。直接占用GPU显存，需要在gpu_utils.py中管理显存分配。
+线程/进程位置：
+运行于独立的 Vision 子进程，通过 gpu_utils.py 统一管理显存资源，避免与 GUI 线程争抢响应速度。
 """
 #created by herald
 from __future__ import annotations
