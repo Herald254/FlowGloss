@@ -12,10 +12,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
+from urllib.parse import urlparse
 
 import httpx
 
 from core.models import Term
+
+logger = logging.getLogger(__name__)
 
 
 class LLMError(RuntimeError):
@@ -32,8 +36,10 @@ class LLMClient:
         self.config = config
         self.prompts = prompts
         self.transport = transport
+        self._deepseek = urlparse(config["base_url"]).hostname == "api.deepseek.com"
         signature_data = {k: config[k] for k in ("base_url", "model", "user_profile")}
         signature_data["prompts"] = prompts
+        signature_data["request_mode"] = "deepseek-json-no-thinking-v1" if self._deepseek else "chat-v1"
         self.signature = hashlib.sha256(json.dumps(signature_data, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
     async def _request(self, prompt: str) -> dict:
@@ -47,8 +53,12 @@ class LLMClient:
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.1,
-            "max_tokens": 700,
+            "max_tokens": 1200,
         }
+        if self._deepseek:
+            # 本任务只需短 JSON；避免默认思考消耗预算而没有最终回答。
+            payload["thinking"] = {"type": "disabled"}
+            payload["response_format"] = {"type": "json_object"}
         try:
             # 外层 deadline 覆盖重试与整个响应，避免仅有逐段网络超时。
             async with asyncio.timeout(self.config["timeout_seconds"]):
@@ -67,10 +77,24 @@ class LLMClient:
                             if attempt == 1:
                                 raise
                             await asyncio.sleep(0.5)
-            content = response.json()["choices"][0]["message"]["content"]
+            choice = response.json()["choices"][0]
+            message = choice["message"]
+            content = message.get("content")
+            reason = choice.get("finish_reason")
+            logger.debug(
+                "LLM 响应：finish_reason=%s, content_chars=%s, reasoning_chars=%s",
+                reason, len(content) if isinstance(content, str) else 0,
+                len(message.get("reasoning_content") or ""),
+            )
+            if reason == "length":
+                raise LLMError("LLM 回答达到长度上限被截断，请缩小识别区域后重试。")
+            if reason == "content_filter":
+                raise LLMError("LLM 服务未返回该内容的解释，请切换页面后重试。")
             if not isinstance(content, str):
                 raise ValueError("响应没有文本")
             content = content.strip()
+            if not content:
+                raise LLMError("LLM 返回了空回答，请稍后手动重试。")
             if content.startswith("```") and content.endswith("```"):
                 content = content.split("\n", 1)[1].rsplit("```", 1)[0].strip()
             result = json.loads(content)

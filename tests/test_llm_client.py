@@ -90,3 +90,50 @@ def test_missing_key_does_not_send_request():
     llm.config["api_key"] = ""
     with pytest.raises(LLMError, match="密钥"):
         asyncio.run(llm.extract_terms("ONNX"))
+
+
+def test_deepseek_disables_thinking_and_enforces_json():
+    def handler(request):
+        payload = json.loads(request.content)
+        assert payload["thinking"] == {"type": "disabled"}
+        assert payload["response_format"] == {"type": "json_object"}
+        assert payload["max_tokens"] == 1200
+        return response({"terms": []})
+
+    config = load_config()["llm"]
+    config.update(api_key="test-key", base_url="https://api.deepseek.com/v1")
+    llm = LLMClient(config, load_prompts(), httpx.MockTransport(handler))
+    assert asyncio.run(llm.extract_terms("ONNX")) == []
+
+
+@pytest.mark.parametrize("url", ["https://example.test/v1", "https://api.deepseek.com.example.test/v1"])
+def test_other_services_do_not_receive_deepseek_parameters(url):
+    def handler(request):
+        payload = json.loads(request.content)
+        assert "thinking" not in payload
+        assert "response_format" not in payload
+        return response({"terms": []})
+
+    config = load_config()["llm"]
+    config.update(api_key="test-key", base_url=url)
+    llm = LLMClient(config, load_prompts(), httpx.MockTransport(handler))
+    assert asyncio.run(llm.extract_terms("ONNX")) == []
+
+
+@pytest.mark.parametrize("content", ["", '{"terms": ['])
+def test_truncated_response_has_specific_error_without_leaking_content(content):
+    llm = client(lambda request: httpx.Response(200, json={"choices": [{
+        "finish_reason": "length",
+        "message": {"content": content, "reasoning_content": "private reasoning"},
+    }]}))
+    with pytest.raises(LLMError, match="截断") as error:
+        asyncio.run(llm.extract_terms("ONNX"))
+    assert "private reasoning" not in str(error.value)
+
+
+def test_empty_answer_distinguished_from_invalid_json():
+    llm = client(lambda request: httpx.Response(200, json={"choices": [{
+        "finish_reason": "stop", "message": {"content": ""},
+    }]}))
+    with pytest.raises(LLMError, match="空回答"):
+        asyncio.run(llm.extract_terms("ONNX"))

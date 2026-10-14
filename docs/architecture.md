@@ -44,6 +44,7 @@ OCR 原生推理无法中途取消，所以关闭时可能需要等待当前推�
 数据库键包含规范化术语、上下文和服务/模型/知识背景/提示词签名。
 每次模型请求最多重试一次暂时性网络错误、429 或 5xx；认证和格式错误不自动重试。
 配置期限覆盖整个请求及重试，不让逐段网络读取无限拖延。
+DeepSeek 官方服务的短解释请求关闭思考并启用 JSON 模式；对长度截断、空回答和格式错误分别提示。
 
 ## 尚未实现
 
@@ -54,3 +55,4 @@ OCR 原生推理无法中途取消，所以关闭时可能需要等待当前推�
 
 - [Qt 线程与 QObject](https://doc.qt.io/qtforpython-6.10/overviews/qtdoc-threads-qobject.html)
 - [HTTPX 异步接口](https://www.python-httpx.org/async/) 与 [网络超时](https://www.python-httpx.org/advanced/timeouts/)
+- [DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/) 与 [JSON 输出](https://api-docs.deepseek.com/guides/json_mode/)

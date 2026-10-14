@@ -47,6 +47,7 @@ capture:
 ```
 
 服务需支持 OpenAI 兼容的 `/chat/completions` 接口；提示词要求返回 JSON。
+使用 DeepSeek 官方地址时，程序自动关闭思考并启用 JSON 输出，避免短解释的输出预算被思考耗尽。
 
 ```powershell
 python main.py --check-config
