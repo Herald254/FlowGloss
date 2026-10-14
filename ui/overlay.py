@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import time
+
 from PySide6.QtCore import (
     QObject, QPoint, QRect, QSize, Qt, QTimer, Signal, Slot, QPropertyAnimation,
     QParallelAnimationGroup, QSequentialAnimationGroup, QPauseAnimation, QEasingCurve,
@@ -18,7 +20,7 @@ from PySide6.QtGui import QFont, QCursor
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QFrame, QLabel, QPushButton,
     QScrollArea, QVBoxLayout, QHBoxLayout, QWidget, QSizePolicy,
-    QGraphicsOpacityEffect, QMenu,
+    QGraphicsOpacityEffect, QMenu, QProgressBar,
 )
 
 from core.monitor.event_hook import ScreenEventMonitor
@@ -26,6 +28,7 @@ from core.worker import ReadingWorker
 from data.database import KnowledgeDB
 from utils.window_geometry import native_window_rect
 from ui.floating_orb import FloatingOrb
+from ui.capture_flash import CaptureFlash
 
 
 class MonitorSignals(QObject):
@@ -50,6 +53,11 @@ class OverlayWindow(QWidget):
         self._drag_offset = None
         self._collapsed = False
         self._busy = False
+        self._busy_since = 0.0
+        self._progress_timer = QTimer(self)
+        self._progress_timer.setInterval(1000)
+        self._progress_timer.timeout.connect(self.refresh_progress)
+        self.capture_flash = CaptureFlash(self)
         self._manual_request = False
         self._orb_error = False
         self._unread_count = 0
@@ -94,6 +102,9 @@ class OverlayWindow(QWidget):
             QLabel#answer { color: #c5d1e2; font-size: 13px; }
             QLabel#badge { color: #8092aa; font-size: 10px; }
             QLabel#footer { color: #63768f; font-size: 10px; }
+            QFrame#progress { background: #1b2935; border-radius: 7px; }
+            QProgressBar { border: none; background: #2a3b49; border-radius: 2px; }
+            QProgressBar::chunk { background: #3cc8ae; border-radius: 2px; }
             QScrollBar:vertical { width: 5px; background: transparent; margin: 2px 0; }
             QScrollBar::handle:vertical { background: #485c73; border-radius: 2px; min-height: 24px; }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
@@ -153,6 +164,27 @@ class OverlayWindow(QWidget):
         self.status_label.setWordWrap(True)
         self.status_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         layout.addWidget(self.status_label)
+        self.progress = QFrame()
+        self.progress.setObjectName("progress")
+        progress_layout = QVBoxLayout(self.progress)
+        progress_layout.setContentsMargins(9, 7, 9, 8)
+        progress_layout.setSpacing(6)
+        progress_header = QHBoxLayout()
+        self.stage_label = QLabel("准备识别")
+        self.stage_label.setStyleSheet("color: #78d3bf; font-size: 11px;")
+        self.elapsed_label = QLabel("已等待 0 秒")
+        self.elapsed_label.setStyleSheet("color: #8c9fb5; font-size: 11px;")
+        progress_header.addWidget(self.stage_label)
+        progress_header.addStretch()
+        progress_header.addWidget(self.elapsed_label)
+        progress_layout.addLayout(progress_header)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(4)
+        progress_layout.addWidget(self.progress_bar)
+        self.progress.hide()
+        layout.addWidget(self.progress)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -197,6 +229,7 @@ class OverlayWindow(QWidget):
         self.worker = ReadingWorker(config, prompts, self.database, self)
         self.worker.capture_needed.connect(self.prepare_capture)
         self.worker.captured.connect(self.restore_after_capture)
+        self.worker.capture_feedback.connect(self.show_capture_feedback)
         self.worker.status_changed.connect(self.update_status)
         self.worker.result_ready.connect(self.show_results)
         self.worker.finished.connect(self.finish_shutdown)
@@ -255,6 +288,7 @@ class OverlayWindow(QWidget):
     @Slot(bool)
     def set_paused(self, paused: bool) -> None:
         self._manual_request = False
+        self.capture_flash.stop()
         self.worker.set_paused(paused)
         self.capture_button.setEnabled(not paused)
         self.pause_button.setText("继续" if paused else "暂停")
@@ -270,6 +304,9 @@ class OverlayWindow(QWidget):
             self.worker.permit_capture(number)
             return
         self._capture_hidden = True
+        self.capture_flash.stop()
+        self.stage_label.setText("截图")
+        self.status_label.setText("正在截取屏幕…")
         self.stop_motion(complete=True)
         self._orb_menu.hide()
         self.hide()
@@ -287,6 +324,13 @@ class OverlayWindow(QWidget):
     def update_status(self, number: int, message: str) -> None:
         if self.worker.queue.is_current(number):
             self.status_label.setText(message)
+            if message.startswith("正在"):
+                stage = ("加载 OCR 模型" if "加载" in message else
+                         "文字识别" if "识别屏幕文字" in message else
+                         "术语筛选" if "筛选" in message else
+                         "生成解释" if "解释" in message else "准备识别")
+                self.stage_label.setText(stage)
+                self.update_orb()
             if not message.startswith("正在"):
                 self.set_busy(False, error=True)
                 if self._manual_request:
@@ -514,6 +558,7 @@ class OverlayWindow(QWidget):
         self.position_layers()
         self._content_layout.activate()
         self.update_orb()
+        self.refresh_progress()
         self.sync_excluded_region()
 
     def reveal_card(self, card: QWidget, index: int) -> None:
@@ -533,8 +578,31 @@ class OverlayWindow(QWidget):
         group.start()
 
     def set_busy(self, busy: bool, error: bool = False) -> None:
+        if busy:
+            self._busy_since = time.monotonic()
+            self.stage_label.setText("准备识别")
         self._busy, self._orb_error = busy, error
+        self.progress.setVisible(busy)
+        self.refresh_progress()
+        self.schedule_fit()
         self.update_orb()
+
+    def refresh_progress(self) -> None:
+        if not hasattr(self, "elapsed_label"):
+            return
+        visible = self._busy and not self._collapsed and self.isVisible() and not self._closing
+        if visible:
+            seconds = max(0, int(time.monotonic() - self._busy_since))
+            self.elapsed_label.setText(f"已等待 {seconds} 秒" + (" · 服务仍在处理" if seconds >= 15 else ""))
+            if not self._progress_timer.isActive():
+                self._progress_timer.start()
+        else:
+            self._progress_timer.stop()
+
+    @Slot(int, object)
+    def show_capture_feedback(self, number: int, bounds) -> None:
+        if not self._closing and self.worker.queue.is_current(number):
+            self.capture_flash.flash(bounds)
 
     def update_orb(self) -> None:
         if not hasattr(self, "orb"):
@@ -594,10 +662,12 @@ class OverlayWindow(QWidget):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self.sync_excluded_region()
+        self.refresh_progress()
 
     def hideEvent(self, event) -> None:
         super().hideEvent(event)
         self.sync_excluded_region()
+        self.refresh_progress()
 
     def moveEvent(self, event) -> None:
         super().moveEvent(event)
@@ -627,6 +697,8 @@ class OverlayWindow(QWidget):
         event.ignore()
         if not self._closing:
             self._closing = True
+            self.capture_flash.stop()
+            self._progress_timer.stop()
             self._fit_timer.stop()
             self.stop_motion(complete=True)
             self._orb_menu.hide()

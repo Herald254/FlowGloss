@@ -79,6 +79,9 @@ def test_capture_hides_window_and_worker_closes_resources(window, app, monkeypat
             captures.append(window.isHidden())
             return np.zeros((30, 40, 3), dtype=np.uint8)
 
+        def get_capture_bounds(self, region):
+            return (0, 0, 40, 30)
+
         def close(self):
             closed.append(True)
 
@@ -91,9 +94,12 @@ def test_capture_hides_window_and_worker_closes_resources(window, app, monkeypat
 
     monkeypatch.setattr(worker_module, "ScreenCapturer", Capturer)
     monkeypatch.setattr(worker_module, "OCREngine", OCR)
+    feedback = []
+    monkeypatch.setattr(window.capture_flash, "flash", lambda bounds: feedback.append((bounds, list(captures), window.isVisible())))
     window.request_manual()
     wait_until(app, lambda: window.status_label.text() == "未识别到足够清晰的文字。")
     assert captures == [True]
+    assert feedback == [((0, 0, 40, 30), [True], True)]
     assert window.isVisible()
     window.close()
     wait_until(app, lambda: window._worker_done)
@@ -385,3 +391,82 @@ def test_automatic_trigger_cannot_replace_active_manual_request(window, monkeypa
     window.show_results(1, "完成", [])
     window.request_automatic()
     assert request.call_count == 2
+
+
+def test_progress_tracks_phase_and_elapsed_then_cleans_up(window, app, monkeypatch):
+    monkeypatch.setattr(window.worker, "request", lambda manual=False: True)
+    monkeypatch.setattr(window.worker.queue, "is_current", lambda number: True)
+    window.request_manual()
+    window.fit_to_content()
+    assert window.progress.isVisible()
+    assert window._progress_timer.isActive()
+    start = window._busy_since
+    window.update_status(1, "正在筛选值得解释的术语…")
+    assert window.stage_label.text() == "术语筛选"
+    assert window._busy_since == start
+    window._busy_since -= 17
+    window.refresh_progress()
+    assert "17 秒" in window.elapsed_label.text()
+    assert "服务仍在处理" in window.elapsed_label.text()
+    window.update_status(1, "正在解释：ONNX")
+    assert window.stage_label.text() == "生成解释"
+    window.show_results(1, "完成", [])
+    assert window.progress.isHidden()
+    assert not window._progress_timer.isActive()
+
+
+def test_busy_orb_keeps_small_size_and_resumes_progress_on_expand(window, app):
+    window.set_collapsed(True, animate=False)
+    window.set_busy(True)
+    window.fit_to_content()
+    assert window.width() == window.height() == 56
+    assert not window._progress_timer.isActive()
+    window.set_collapsed(False, animate=False)
+    assert window.progress.isVisible()
+    assert window._progress_timer.isActive()
+    window.pause_button.setChecked(True)
+    assert window.progress.isHidden()
+    assert not window._progress_timer.isActive()
+
+
+def test_error_and_stale_status_do_not_leave_busy_progress(window, monkeypatch):
+    monkeypatch.setattr(window.worker.queue, "is_current", lambda number: number == 2)
+    window.set_busy(True)
+    window.update_status(1, "旧任务失败")
+    assert window._busy
+    window.update_status(2, "LLM 请求超时，可稍后重试。")
+    assert not window._busy
+    assert window.progress.isHidden()
+    assert not window._progress_timer.isActive()
+
+
+def test_capture_feedback_is_ignored_for_stale_tasks_and_cleared_before_capture(window, monkeypatch):
+    from unittest.mock import Mock
+    monkeypatch.setattr(window.worker.queue, "is_current", lambda number: number == 2)
+    flash = Mock()
+    stop = Mock()
+    monkeypatch.setattr(window.capture_flash, "flash", flash)
+    monkeypatch.setattr(window.capture_flash, "stop", stop)
+    window.show_capture_feedback(1, (0, 0, 40, 30))
+    flash.assert_not_called()
+    window.show_capture_feedback(2, (0, 0, 40, 30))
+    flash.assert_called_once()
+    window.prepare_capture(2)
+    stop.assert_called_once()
+    assert window.isHidden()
+
+
+def test_failed_capture_restores_window_without_success_flash(window, app, monkeypatch):
+    from unittest.mock import Mock
+    import core.worker as worker_module
+    capturer = Mock()
+    capturer.grab_screen.side_effect = RuntimeError("capture failed")
+    monkeypatch.setattr(worker_module, "ScreenCapturer", lambda *args, **kwargs: capturer)
+    monkeypatch.setattr(worker_module, "OCREngine", lambda *args: Mock())
+    flash = Mock()
+    monkeypatch.setattr(window.capture_flash, "flash", flash)
+    window.request_manual()
+    wait_until(app, lambda: "本地截图或 OCR 失败" in window.status_label.text())
+    flash.assert_not_called()
+    assert window.isVisible()
+    assert window.progress.isHidden()

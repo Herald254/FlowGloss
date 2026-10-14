@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 class ReadingWorker(QThread):
     capture_needed = Signal(int)
     captured = Signal(int)
+    capture_feedback = Signal(int, object)
     status_changed = Signal(int, str)
     result_ready = Signal(int, str, object)
 
@@ -109,6 +110,12 @@ class ReadingWorker(QThread):
                     finally:
                         self._capture_number = None
                         self.captured.emit(task.number)
+                    # 只在像素捕获成功后通知光效，保持光效不进入 OCR 输入。
+                    bounds_getter = getattr(capturer, "get_capture_bounds", None)
+                    if bounds_getter is not None and self.queue.is_current(task.number):
+                        bounds = bounds_getter(tuple(region) if region else None)
+                        if isinstance(bounds, tuple) and len(bounds) == 4:
+                            self.capture_feedback.emit(task.number, bounds)
                     message, results = asyncio.run(self._process(pipeline, frame, task))
                     if self.queue.is_current(task.number):
                         self.result_ready.emit(task.number, message, results)

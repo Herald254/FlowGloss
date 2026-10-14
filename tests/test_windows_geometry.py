@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QApplication
 from ui.overlay import OverlayWindow
 from utils.config_loader import load_config, load_prompts
 from utils.window_geometry import native_window_rect
+from ui.capture_flash import EdgeStrip
 
 warnings = []
 def message(kind, context, text):
@@ -34,6 +35,23 @@ with tempfile.TemporaryDirectory() as directory:
     window = OverlayWindow(config, load_prompts())
     window.setWindowOpacity(0)
     window.show()
+    window.set_busy(True)
+    # 光效窗口使用真实原生后端，但保持完全透明，不干扰正在使用的桌面。
+    original_show = EdgeStrip.show
+    def transparent_show(strip):
+        strip.setWindowOpacity(0)
+        original_show(strip)
+    EdgeStrip.show = transparent_show
+    from utils.window_geometry import native_monitor_rects
+    flash_rects = []
+    bounds = native_monitor_rects()
+    if bounds:
+        screen_bounds = (min(r[0] for r in bounds.values()), min(r[1] for r in bounds.values()),
+                         max(r[2] for r in bounds.values()), max(r[3] for r in bounds.values()))
+        window.capture_flash.flash(screen_bounds)
+        for strip in window.capture_flash.strips:
+            native = native_window_rect(int(strip.winId()))
+            flash_rects.append({'native': native, 'logical': [strip.width(), strip.height()], 'dpr': strip.devicePixelRatioF()})
     snapshots = []
     def snapshot(name):
         snapshots.append({
@@ -50,7 +68,7 @@ with tempfile.TemporaryDirectory() as directory:
     QTimer.singleShot(2500, app.quit)
     app.exec()
     window.worker.wait(2000)
-    print(json.dumps({'platform': app.platformName(), 'snapshots': snapshots, 'warnings': warnings, 'closed': window._worker_done}))
+    print(json.dumps({'platform': app.platformName(), 'snapshots': snapshots, 'warnings': warnings, 'closed': window._worker_done, 'flash': flash_rects, 'screen_count': len(app.screens())}))
 '''
 
 
@@ -72,6 +90,11 @@ def test_native_collapse_size_matches_dpi_without_geometry_warnings(scale):
     assert data["platform"] == "windows"
     assert data["warnings"] == []
     assert data["closed"]
+    assert len(data["flash"]) == 4 * data["screen_count"]
+    for strip in data["flash"]:
+        l, t, r, b = strip["native"]
+        assert abs((r - l) - strip["logical"][0] * strip["dpr"]) <= 1
+        assert abs((b - t) - strip["logical"][1] * strip["dpr"]) <= 1
     collapsed, expanded = data["snapshots"]
     assert collapsed["size"] == [56, 56]
     assert collapsed["inside"] and expanded["inside"]

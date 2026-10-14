@@ -171,6 +171,11 @@ class ScreenCapturer:
         )
         return bgra[:, :, :3].copy()
 
+    def get_capture_bounds(self, region=None) -> tuple[int, int, int, int]:
+        """返回截图的原生物理边界，供 GUI 匹配显示器，不传递屏幕内容。"""
+        rect = self._build_capture_region(region)
+        return rect["left"], rect["top"], rect["left"] + rect["width"], rect["top"] + rect["height"]
+
     def _build_capture_region(self, region: Optional[Tuple[int, int, int, int]]) -> dict:
         if region is None:
             monitor = self._sct.monitors[self.monitor_index]
