@@ -17,6 +17,7 @@ def response(content):
 def client(handler):
     config = load_config()["llm"]
     config["api_key"] = "test-key"
+    config["base_url"] = "https://example.test/v1"
     return LLMClient(config, load_prompts(), httpx.MockTransport(handler))
 
 

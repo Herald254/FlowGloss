@@ -20,20 +20,32 @@ python install.py --cpu --dev
 ## 配置与启动
 
 共享默认值在 `config/settings.yaml`，提示词在 `config/prompts.yaml`。
-创建 `config/settings.local.yaml` 覆盖本机设置，该文件已忽略，不会提交：
+LLM 配置使用项目根目录的 `.env`，从示例复制后填写密钥：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+```dotenv
+FLOWGLOSS_API_KEY=你的密钥
+FLOWGLOSS_BASE_URL=https://api.deepseek.com
+FLOWGLOSS_MODEL=deepseek-flash
+```
+
+程序自动读取项目根目录 `.env`，从其他目录启动也有效。修改后重启程序。
+配置优先级：进程环境变量 > `.env` > `config/settings.local.yaml` > 默认 YAML。
+`.env` 已被 Git 忽略；`.env.example` 只保存无密钥示例。
+
+截图区域和用户知识背景等设置仍可在 `config/settings.local.yaml` 中覆盖：
 
 ```yaml
 llm:
-  api_key: 填入你的密钥
-  base_url: https://api.openai.com/v1
-  model: gpt-4o-mini
   user_profile: 熟悉 Python，但不了解机器学习术语。
 capture:
   monitor_index: 1
   region: null
 ```
 
-也支持环境变量 `FLOWGLOSS_API_KEY`、`FLOWGLOSS_BASE_URL`、`FLOWGLOSS_MODEL`，环境变量优先于文件。
 服务需支持 OpenAI 兼容的 `/chat/completions` 接口；提示词要求返回 JSON。
 
 ```powershell

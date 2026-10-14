@@ -1,5 +1,5 @@
 # 本地覆盖：config/settings.local.yaml（不提交）。
-# API 密钥优先从 FLOWGLOSS_API_KEY 环境变量读取。
+# LLM 连接配置从项目 .env 读取；FLOWGLOSS_* 进程环境变量优先。
 capture:
   monitor_index: 1
   region: null  # [left, top, width, height]，相对于选定显示器

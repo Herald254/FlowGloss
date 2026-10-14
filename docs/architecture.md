@@ -7,7 +7,7 @@
 | 文件 | 当前职责 |
 | --- | --- |
 | main.py | 唯一启动入口、配置与日志初始化 |
-| utils/config_loader.py | 默认/本地 YAML 合并、环境变量、参数校验 |
+| utils/config_loader.py | 默认/本地 YAML、项目 .env、进程环境变量与参数校验 |
 | core/models.py | TextBlock、Term、Explanation 数据对象 |
 | core/monitor/event_hook.py | 键鼠事件与稳定状态防抖 |
 | core/worker.py | 固定 Qt 工作线程、截图握手、网络任务取消与资源清理 |

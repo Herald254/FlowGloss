@@ -108,7 +108,7 @@ class OverlayWindow(QWidget):
         self.move(screen.right() - self.width() - 20, screen.bottom() - self.height() - 20)
         self.auto_box.setChecked(config["ui"]["auto_start"])
         if not config["llm"]["api_key"].strip():
-            self.status_label.setText("请先设置 FLOWGLOSS_API_KEY 或 config/settings.local.yaml，然后重新启动。")
+            self.status_label.setText("请先在项目根目录 .env 中填写 FLOWGLOSS_API_KEY，然后重新启动。")
 
     def _has_key(self) -> bool:
         if not self.config["llm"]["api_key"].strip():

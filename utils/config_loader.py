@@ -1,6 +1,6 @@
 """YAML 配置加载与校验，供入口、工作线程和 LLM 客户端共享。
 
-默认配置纳入版本控制，本地配置和 API 密钥不提交。
+默认配置纳入版本控制，.env 与本地配置不提交。
 所有相对文件路径都基于项目目录，避免从其他目录启动时失效。
 """
 
@@ -12,6 +12,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import yaml
+from dotenv import dotenv_values
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -38,15 +39,17 @@ def _read_yaml(path: Path) -> dict:
 
 
 def load_config(path: str | Path | None = None) -> dict:
-    """合并默认配置、本地覆盖和环境变量，并检查运行参数。"""
+    """合并 YAML、项目 .env 和进程环境变量；环境变量优先。"""
     config = _read_yaml(PROJECT_ROOT / "config/settings.yaml")
     local = Path(path) if path else PROJECT_ROOT / "config/settings.local.yaml"
     if path or local.exists():
         config = _merge(config, _read_yaml(local))
     validate_config(config)
+    file_env = dotenv_values(PROJECT_ROOT / ".env", encoding="utf-8-sig")
     for env, key in (("FLOWGLOSS_API_KEY", "api_key"), ("FLOWGLOSS_BASE_URL", "base_url"), ("FLOWGLOSS_MODEL", "model")):
-        if os.environ.get(env):
-            config["llm"][key] = os.environ[env]
+        value = os.environ.get(env, file_env.get(env))
+        if value is not None:
+            config["llm"][key] = value
     validate_config(config)
     database = Path(config["storage"]["database_path"])
     if not database.is_absolute():

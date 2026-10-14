@@ -9,6 +9,12 @@ from pathlib import Path
 from utils.config_loader import load_config
 
 
+@pytest.fixture(autouse=True)
+def isolate_local_dotenv(monkeypatch):
+    # 用户自己的 .env 不能改变测试预期，也不应进入失败输出。
+    monkeypatch.setattr("utils.config_loader.dotenv_values", lambda *args, **kwargs: {})
+
+
 def test_environment_overrides_local_without_changing_defaults(tmp_path, monkeypatch):
     path = tmp_path / "local.yaml"
     path.write_text("llm:\n  api_key: local-key\n  model: local-model\n", encoding="utf-8")
@@ -45,3 +51,35 @@ def test_config_cli_works_with_non_chinese_console_encoding(tmp_path):
     )
     assert result.returncode == 0
     assert "配置校验通过" in result.stdout.decode("utf-8")
+
+
+def test_dotenv_overrides_yaml_but_process_environment_wins(tmp_path, monkeypatch):
+    path = tmp_path / "local.yaml"
+    path.write_text("llm:\n  api_key: yaml-key\n  model: yaml-model\n", encoding="utf-8")
+    monkeypatch.setattr("utils.config_loader.dotenv_values", lambda *args, **kwargs: {
+        "FLOWGLOSS_API_KEY": "dotenv-key", "FLOWGLOSS_MODEL": "dotenv-model",
+    })
+    monkeypatch.delenv("FLOWGLOSS_API_KEY", raising=False)
+    monkeypatch.delenv("FLOWGLOSS_MODEL", raising=False)
+    assert load_config(path)["llm"]["api_key"] == "dotenv-key"
+    monkeypatch.setenv("FLOWGLOSS_API_KEY", "process-key")
+    assert load_config(path)["llm"]["api_key"] == "process-key"
+    assert load_config(path)["llm"]["model"] == "dotenv-model"
+
+
+def test_dotenv_resolved_from_project_not_working_directory(tmp_path, monkeypatch):
+    import utils.config_loader as loader
+    from dotenv import dotenv_values
+    root = tmp_path / "project"
+    (root / "config").mkdir(parents=True)
+    (root / "config/settings.yaml").write_text(
+        (loader.PROJECT_ROOT / "config/settings.yaml").read_text(encoding="utf-8"), encoding="utf-8",
+    )
+    (root / ".env").write_text("FLOWGLOSS_API_KEY=test-dotenv-key\nFLOWGLOSS_MODEL=deepseek-flash\n", encoding="utf-8")
+    monkeypatch.setattr(loader, "PROJECT_ROOT", root)
+    monkeypatch.setattr(loader, "dotenv_values", dotenv_values)
+    monkeypatch.delenv("FLOWGLOSS_API_KEY", raising=False)
+    monkeypatch.delenv("FLOWGLOSS_MODEL", raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert loader.load_config()["llm"]["api_key"] == "test-dotenv-key"
+    assert loader.load_config()["llm"]["model"] == "deepseek-flash"
