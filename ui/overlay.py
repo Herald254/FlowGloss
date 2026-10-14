@@ -11,13 +11,13 @@
 from __future__ import annotations
 
 from PySide6.QtCore import (
-    QObject, QPoint, QRect, Qt, QTimer, Signal, Slot, QPropertyAnimation,
+    QObject, QPoint, QRect, QSize, Qt, QTimer, Signal, Slot, QPropertyAnimation,
     QParallelAnimationGroup, QSequentialAnimationGroup, QPauseAnimation, QEasingCurve,
 )
 from PySide6.QtGui import QFont, QCursor
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QFrame, QLabel, QPushButton,
-    QScrollArea, QVBoxLayout, QHBoxLayout, QWidget, QSizePolicy, QLayout,
+    QScrollArea, QVBoxLayout, QHBoxLayout, QWidget, QSizePolicy,
     QGraphicsOpacityEffect, QMenu,
 )
 
@@ -64,6 +64,8 @@ class OverlayWindow(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setWindowOpacity(config["ui"]["opacity"])
         self.setAttribute(Qt.WA_TranslucentBackground)
+        # Windows 会缓存布局推导的最小尺寸；只停用布局不足以缩成球。
+        self.setMinimumSize(self.ORB_SIZE, self.ORB_SIZE)
         self.resize(360, 155)
         self._fit_timer = QTimer(self)
         self._fit_timer.setSingleShot(True)
@@ -97,13 +99,11 @@ class OverlayWindow(QWidget):
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
         """)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSizeConstraint(QLayout.SetNoConstraint)
-        surface = QFrame()
+        # 顶层窗口不安装布局：Windows 会按其 heightForWidth 强制放大收起动画。
+        # 面板内部保留布局，顶层的面板/球尺寸和位置由动画显式管理。
+        surface = QFrame(self)
         self.surface = surface
         surface.setObjectName("surface")
-        outer.addWidget(surface)
         layout = QVBoxLayout(surface)
         self._content_layout = layout
         layout.setContentsMargins(14, 12, 14, 10)
@@ -395,8 +395,6 @@ class OverlayWindow(QWidget):
             self.scroll.setFixedHeight(0)
         self._content_layout.invalidate()
         self._content_layout.activate()
-        self.layout().invalidate()
-        self.layout().activate()
         height = self._content_layout.totalHeightForWidth(self.PANEL_WIDTH)
         if height < 0:
             height = self._content_layout.sizeHint().height()
@@ -420,6 +418,10 @@ class OverlayWindow(QWidget):
         y = max(screen.top() + 8, min(anchor.y() - height + 1, screen.bottom() - height - 7))
         return QRect(x, y, width, height)
 
+    def minimumSizeHint(self) -> QSize:
+        """面板的布局最小尺寸不能成为原生悬浮球窗口的下限。"""
+        return QSize(self.ORB_SIZE, self.ORB_SIZE)
+
     def set_collapsed(self, collapsed: bool, animate: bool = True) -> None:
         if self._closing or collapsed == self._collapsed:
             return
@@ -442,7 +444,6 @@ class OverlayWindow(QWidget):
         if self.geometry() == target and kind == "resize":
             self.finish_display_mode()
             return
-        self.layout().setEnabled(False)
         if self.surface.isHidden():
             self._panel_effect.setOpacity(0)
         self.surface.show()
@@ -499,8 +500,7 @@ class OverlayWindow(QWidget):
         if not hasattr(self, "orb"):
             return
         self.orb.move(self.width() - self.ORB_SIZE, self.height() - self.ORB_SIZE)
-        if self._transition_kind is not None:
-            self.surface.setGeometry(0, 0, self.PANEL_WIDTH, self._expanded_height)
+        self.surface.setGeometry(0, 0, self.PANEL_WIDTH, self._expanded_height)
 
     def finish_display_mode(self) -> None:
         self.surface.setVisible(not self._collapsed)
@@ -509,11 +509,10 @@ class OverlayWindow(QWidget):
         self.collapse_button.setEnabled(True)
         self._panel_effect.setOpacity(1)
         self._orb_effect.setOpacity(1)
-        self.layout().setEnabled(not self._collapsed)
         if not self._collapsed:
-            self.layout().activate()
             self._unread_count = 0
         self.position_layers()
+        self._content_layout.activate()
         self.update_orb()
         self.sync_excluded_region()
 
