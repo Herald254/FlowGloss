@@ -146,3 +146,49 @@ def test_pause_cancels_inflight_network_without_showing_stale_result(window, app
     wait_until(app, cancelled.is_set)
     assert window.cards_layout.count() == 0
     assert "已暂停" in window.status_label.text()
+
+
+def test_empty_window_is_compact_and_expands_only_for_content(window, app, monkeypatch):
+    monkeypatch.setattr(window.worker.queue, "is_current", lambda number: True)
+    window.fit_to_content()
+    empty_height = window.height()
+    assert empty_height < 210
+    assert window.scroll.isHidden()
+    window.show_results(1, "测试结果", [Explanation("ONNX", "ONNX models", "模型格式，帮助不同框架交换机器学习模型。")])
+    window.fit_to_content()
+    assert window.height() > empty_height
+    assert not window.scroll.isHidden()
+    window.mark_mastered("ONNX", window.cards_layout.itemAt(0).widget())
+    window.fit_to_content()
+    assert window.height() <= empty_height + 10
+    assert window.scroll.isHidden()
+
+
+def test_long_explanations_have_bounded_height_and_scroll(window, monkeypatch):
+    monkeypatch.setattr(window.worker.queue, "is_current", lambda number: True)
+    window.show_results(1, "测试结果", [
+        Explanation(f"术语 {i}", "context", "这是用于测试滚动条的长解释。" * 25) for i in range(3)
+    ])
+    window.fit_to_content()
+    assert window.height() < window.screen().availableGeometry().height() * 0.8
+    assert window.cards.minimumHeight() > window.scroll.height()
+
+
+def test_pointer_over_window_blocks_already_queued_auto_trigger(window, monkeypatch):
+    from unittest.mock import Mock
+    window.auto_box.blockSignals(True)
+    window.auto_box.setChecked(True)
+    window.auto_box.blockSignals(False)
+    monkeypatch.setattr(window, "pointer_inside", lambda: True)
+    request = Mock()
+    monkeypatch.setattr(window.worker, "request", request)
+    window.request_automatic()
+    request.assert_not_called()
+
+
+def test_native_physical_rect_is_used_and_cleared_when_hidden(window, monkeypatch):
+    monkeypatch.setattr("ui.overlay.native_window_rect", lambda handle: (1000, 200, 1500, 700))
+    window.sync_excluded_region()
+    assert window.monitor._excluded_regions == ((1000, 200, 1500, 700),)
+    window.hide()
+    assert window.monitor._excluded_regions == ()

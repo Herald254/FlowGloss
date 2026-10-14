@@ -277,6 +277,47 @@ class TestMouseScroll(unittest.TestCase):
         self.assertEqual(status['event_count'], 0)
 
 
+class TestExcludedScroll(unittest.TestCase):
+    """窗口内滚动不触发识别，并撤销尚未到期的页面滚动任务。"""
+
+    def setUp(self):
+        self.callback = Mock()
+        self.monitor = ScreenEventMonitor(
+            debounce_interval=0.1, on_stable_callback=self.callback,
+            enable_keyboard=False, enable_mouse_scroll=False,
+        )
+        self.monitor.set_excluded_regions([(100, 100, 400, 500)])
+        self.monitor.start()
+
+    def tearDown(self):
+        self.monitor.stop()
+
+    def test_internal_vertical_and_horizontal_scroll_are_ignored(self):
+        self.monitor._on_scroll(200, 200, 0, -3)
+        self.monitor._on_scroll(200, 200, 3, 0)
+        self.assertEqual(self.monitor.event_count, 0)
+        self.assertIsNone(self.monitor._timer)
+
+    def test_external_scroll_still_triggers(self):
+        self.monitor._on_scroll(50, 50, 0, -3)
+        time.sleep(0.15)
+        self.callback.assert_called_once()
+
+    def test_internal_scroll_cancels_pending_external_trigger(self):
+        self.monitor._on_scroll(50, 50, 0, -3)
+        self.monitor._on_scroll(200, 200, 0, -3)
+        time.sleep(0.15)
+        self.callback.assert_not_called()
+
+    def test_moving_or_hiding_window_updates_exclusion(self):
+        self.monitor.set_excluded_regions([(500, 500, 800, 900)])
+        self.monitor._on_scroll(200, 200, 0, -3)
+        self.assertEqual(self.monitor.event_count, 1)
+        self.monitor.set_excluded_regions([])
+        self.monitor._on_scroll(600, 600, 0, -3)
+        self.assertEqual(self.monitor.event_count, 2)
+
+
 class TestKeyboardEvents(unittest.TestCase):
     """测试键盘事件监听"""
     
