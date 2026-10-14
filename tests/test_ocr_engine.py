@@ -7,7 +7,9 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext
 
-from ocr_engine import OCREngine
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.vision.ocr_engine import OCREngine
 
 
 def configure_logging(log_level: str) -> None:
