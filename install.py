@@ -14,6 +14,9 @@ from pathlib import Path
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="安装 FlowGloss V1.0 依赖")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--cpu", action="store_true", help="安装 CPU 依赖（默认）")

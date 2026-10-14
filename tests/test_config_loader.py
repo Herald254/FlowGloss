@@ -1,6 +1,10 @@
 """本地覆盖、环境变量优先级与错误配置验证。"""
 
 import pytest
+import os
+import subprocess
+import sys
+from pathlib import Path
 
 from utils.config_loader import load_config
 
@@ -28,3 +32,16 @@ def test_invalid_config_fails_before_startup(tmp_path, text):
     path.write_text(text, encoding="utf-8")
     with pytest.raises(ValueError):
         load_config(path)
+
+
+def test_config_cli_works_with_non_chinese_console_encoding(tmp_path):
+    config = tmp_path / "valid.yaml"
+    config.write_text("{}", encoding="utf-8")
+    environment = os.environ.copy()
+    environment["PYTHONIOENCODING"] = "cp1252"
+    result = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve().parent.parent / "main.py"), "--config", str(config), "--check-config"],
+        capture_output=True, env=environment, check=False,
+    )
+    assert result.returncode == 0
+    assert "配置校验通过" in result.stdout.decode("utf-8")

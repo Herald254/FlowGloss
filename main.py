@@ -17,6 +17,9 @@ from utils.logger import setup_logging
 
 def main() -> int:
     """启动唯一 GUI 入口；--check-config 可在无桌面环境校验配置。"""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="FlowGloss V1.0 桌面伴读助手")
     parser.add_argument("--config", help="本地 YAML 配置文件路径")
     parser.add_argument("--check-config", action="store_true", help="只校验配置，不启动界面")
