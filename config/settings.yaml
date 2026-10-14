@@ -1,21 +1,25 @@
-# e:\code\FlowGloss\config\settings.yaml
-"""
-静态配置文件。
-
-技术简介：
-- YAML格式的系统配置存储，支持层级化参数管理
-- 通过PyYAML解析器加载，提供类型安全的配置访问接口
-
-模块功能：
-- 定义OCR识别阈值（置信度、文本密度等参数）
-- 配置NER模型灵敏度（实体识别置信度阈值）
-- 存储API密钥（LLM服务认证信息）
-- 配置本地模型路径（OCR、NER模型文件位置）
-- 设置系统行为参数（触发延迟、缓存策略等）
-
-整体作用：
-提供无需修改代码即可调整系统行为的能力，实现配置与代码分离。
-
-联系：
-被utils/config_loader.py读取，解析后通过配置管理器供全模块共享使用。
-"""
+# 本地覆盖：config/settings.local.yaml（不提交）。
+# LLM 连接配置从项目 .env 读取；FLOWGLOSS_* 进程环境变量优先。
+capture:
+  monitor_index: 1
+  region: null  # [left, top, width, height]，相对于选定显示器
+  debounce_seconds: 1.0
+  cooldown_seconds: 8.0
+  change_threshold: 0.02
+ocr:
+  confidence_threshold: 0.5
+  min_text_length: 12
+llm:
+  base_url: https://api.openai.com/v1
+  model: gpt-4o-mini
+  api_key: ''
+  timeout_seconds: 20.0
+  max_context_chars: 3000
+  max_terms: 3
+  user_profile: 熟悉 Python 基础和常见 API，但不熟悉陌生领域的专业术语。
+storage:
+  database_path: data/flowgloss.db
+  cache_hours: 24
+ui:
+  opacity: 0.95
+  auto_start: false

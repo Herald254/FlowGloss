@@ -204,6 +204,14 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# FlowGloss 本机配置、学习数据与运行日志
+config/settings.local.yaml
+data/*.db
+data/*.db-shm
+data/*.db-wal
+logs/
+.inspection-tmp/
+
 # Marimo
 marimo/_static/
 marimo/_lsp/

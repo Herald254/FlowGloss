@@ -6,7 +6,9 @@ from pathlib import Path
 
 from PIL import Image
 
-from capturer import ScreenCapturer
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.vision.capturer import ScreenCapturer
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

@@ -1,29 +1,35 @@
 # e:\code\FlowGloss\core\vision\processor.py
 """
-基于OpenCV的图像差分分析。
+画面变化过滤器：降采样后比较像素变化比例。
 
-技术简介：
-- 使用OpenCV实现高效的图像对比算法
-- 采用像素级差分和结构相似性（SSIM）相结合的策略
-- 实现图像重叠检测与拼接算法，识别新增区域
-
-模块功能：
-- 对比frame_n与frame_n-1的差异，计算变化率
-- 如果差异率低于阈值，则中断流程，避免无效OCR
-- 检测图像重叠区域，提取新增内容区域
-- 生成变化区域的边界框（bounding_box）
-
-整体作用：
-计算过滤器，防止在静止页面反复进行OCR，实现增量识别策略。
-
-对外方法：
-- detect_change(old_img, new_img) -> bool, bounding_box: 检测图像变化，返回是否需要处理和变化区域
-- find_overlap_region(img1, img2) -> tuple: 识别两帧图像的重叠区域
-- stitch_images(img1, img2) -> ndarray: 图像拼接，构建完整视图
-
-联系：
-衔接截图与OCR引擎，为OCR引擎提供精确的处理区域。
-
-线程位置：
-Vision子进程/主线程。在视觉处理进程中运行，占用CPU计算资源。
+连接截图与 OCR，成功处理后才记住画面，失败任务允许重试。
+V1.0 尚未实现滚动拼接、SSIM 或局部增量识别。
 """
+
+from __future__ import annotations
+
+import numpy as np
+
+
+class ImageChangeDetector:
+    """用降采样画面判断是否值得 OCR；V1.0 暂不做拼接和局部裁切。"""
+
+    def __init__(self, threshold: float = 0.02) -> None:
+        self.threshold = threshold
+        self.previous: np.ndarray | None = None
+
+    @staticmethod
+    def sample(frame: np.ndarray) -> np.ndarray:
+        step = max(1, max(frame.shape[:2]) // 320)
+        return frame[::step, ::step].astype(np.int16)
+
+    def has_changed(self, frame: np.ndarray) -> bool:
+        current = self.sample(frame)
+        if self.previous is None or self.previous.shape != current.shape:
+            return True
+        changed = np.max(np.abs(current - self.previous), axis=2) > 20
+        return bool(np.mean(changed) > self.threshold)
+
+    def accept(self, frame: np.ndarray) -> None:
+        """只有成功处理后才记住画面，使失败任务可以重试。"""
+        self.previous = self.sample(frame)

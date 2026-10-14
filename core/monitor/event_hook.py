@@ -111,6 +111,7 @@ class ScreenEventMonitor:
         
         self._callback_running = False
         self._callback_pending = False
+        self._excluded_regions: tuple[tuple[int, int, int, int], ...] = ()
         
         self.mouse_listener: Optional[mouse.Listener] = None
         self.keyboard_listener: Optional[keyboard.Listener] = None
@@ -144,6 +145,14 @@ class ScreenEventMonitor:
         """
         self._reset_timer()
         logger.debug("手动触发活动通知")
+
+    def set_excluded_regions(self, regions) -> None:
+        """更新不参与自动识别的物理屏幕区域 (left, top, right, bottom)。
+
+        主线程只发布坐标快照，监听线程不访问 Qt 窗口对象。
+        """
+        with self._lock:
+            self._excluded_regions = tuple(tuple(region) for region in regions)
     
     def trigger_now(self) -> None:
         """立即触发一次稳定回调，跳过防抖
@@ -331,6 +340,13 @@ class ScreenEventMonitor:
             dy: 垂直滚动距离
         """
         if dx != 0 or dy != 0:
+            with self._lock:
+                if any(left <= x < right and top <= y < bottom for left, top, right, bottom in self._excluded_regions):
+                    # 查看解释时也撤销刚才页面滚动留下的防抖任务。
+                    self._timer_generation += 1
+                    self._cancel_timer_locked()
+                    self._callback_pending = False
+                    return
             self._reset_timer()
             logger.debug(f"检测到滚动事件: dx={dx}, dy={dy}")
     

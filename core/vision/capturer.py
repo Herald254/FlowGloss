@@ -105,7 +105,11 @@ class ScreenCapturer:
 
         self.max_fps = max_fps
         self._min_interval = 1.0 / max_fps if max_fps > 0 else 0.0
-        self.monitor_index = self._validate_monitor_index(monitor_index)
+        try:
+            self.monitor_index = self._validate_monitor_index(monitor_index)
+        except Exception:
+            self._sct.close()
+            raise
 
         logger.info(
             "ScreenCapturer initialized. monitor_index=%s, max_fps=%s",
@@ -166,6 +170,11 @@ class ScreenCapturer:
             screenshot.height, screenshot.width, 4
         )
         return bgra[:, :, :3].copy()
+
+    def get_capture_bounds(self, region=None) -> tuple[int, int, int, int]:
+        """返回截图的原生物理边界，供 GUI 匹配显示器，不传递屏幕内容。"""
+        rect = self._build_capture_region(region)
+        return rect["left"], rect["top"], rect["left"] + rect["width"], rect["top"] + rect["height"]
 
     def _build_capture_region(self, region: Optional[Tuple[int, int, int, int]]) -> dict:
         if region is None:

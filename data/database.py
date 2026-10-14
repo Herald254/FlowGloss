@@ -1,32 +1,74 @@
 # e:\code\FlowGloss\data\database.py
 """
-基于SQLite的轻量级数据库。
+SQLite 学习记录和解释缓存。
 
-技术简介：
-- 使用SQLite3嵌入式数据库，无需独立数据库服务
-- 实现ORM（对象关系映射）层，简化数据访问
-- 支持事务处理，确保数据一致性
-- 实现连接池管理，优化并发访问性能
-
-模块功能：
-- 存储用户词典（词汇、解释、上下文）
-- 记录熟练度等级（-1到1的连续值，表示从未见到到完全掌握）
-- 维护解释缓存（词汇→解释的映射关系）
-- 跟踪学习历史（访问时间、交互次数）
-
-整体作用：
-实现"越用越聪明"的持久化层，支持个性化推荐和长期学习跟踪。
-
-对外方法：
-- update_word(word, delta): 更新词汇熟练度（delta为增量值）
-- query_history(word): 查询词汇学习历史
-- get_proficiency(word): 获取词汇熟练度
-- cache_explanation(word, explanation): 缓存解释内容
-- get_cached_explanation(word): 获取缓存的解释
-
-联系：
-被Ranker查询用户知识库，被UI反馈功能更新用户数据。
-
-线程位置：
-主进程/I/O线程。使用线程安全的数据库连接，支持多线程并发访问。
+模块功能：保存已掌握标记；按术语、语境、服务、模型、用户背景与提示词缓存解释。
+所有连接操作使用锁；不保存完整截图或整屏 OCR 文本。
+学习记录与缓存跨重启保留，知识图谱和学习历史统计尚未接入。
 """
+
+from __future__ import annotations
+
+import hashlib
+import json
+import sqlite3
+import threading
+import time
+from pathlib import Path
+
+from core.cognition.ranker import normalize_term
+
+
+class KnowledgeDB:
+    """线程安全的学习记录与语境缓存，不保存整屏 OCR 文本。"""
+
+    def __init__(self, path: str | Path) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+        self._connection = sqlite3.connect(path, check_same_thread=False)
+        with self._connection:
+            self._connection.executescript("""
+                CREATE TABLE IF NOT EXISTS words (
+                    word TEXT PRIMARY KEY, display_word TEXT NOT NULL,
+                    mastered INTEGER NOT NULL DEFAULT 0, updated_at REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS explanations (
+                    cache_key TEXT PRIMARY KEY, explanation TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                );
+            """)
+
+    @staticmethod
+    def cache_key(term: str, context: str, signature: str) -> str:
+        data = json.dumps([normalize_term(term), " ".join(context.split()), signature], ensure_ascii=False)
+        return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+    def is_mastered(self, word: str) -> bool:
+        with self._lock:
+            row = self._connection.execute("SELECT mastered FROM words WHERE word = ?", (normalize_term(word),)).fetchone()
+        return bool(row and row[0])
+
+    def update_word(self, word: str, mastered: bool = True) -> None:
+        with self._lock, self._connection:
+            self._connection.execute(
+                "INSERT INTO words VALUES (?, ?, ?, ?) ON CONFLICT(word) DO UPDATE SET mastered=excluded.mastered, updated_at=excluded.updated_at",
+                (normalize_term(word), word, int(mastered), time.time()),
+            )
+
+    def get_cached_explanation(self, key: str, max_age_hours: float) -> str | None:
+        if max_age_hours <= 0:
+            return None
+        with self._lock:
+            row = self._connection.execute("SELECT explanation, created_at FROM explanations WHERE cache_key = ?", (key,)).fetchone()
+        if row and time.time() - row[1] < max_age_hours * 3600:
+            return row[0]
+        return None
+
+    def cache_explanation(self, key: str, explanation: str) -> None:
+        with self._lock, self._connection:
+            self._connection.execute("INSERT OR REPLACE INTO explanations VALUES (?, ?, ?)", (key, explanation, time.time()))
+
+    def close(self) -> None:
+        with self._lock:
+            self._connection.close()
