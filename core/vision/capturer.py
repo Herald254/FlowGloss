@@ -105,7 +105,11 @@ class ScreenCapturer:
 
         self.max_fps = max_fps
         self._min_interval = 1.0 / max_fps if max_fps > 0 else 0.0
-        self.monitor_index = self._validate_monitor_index(monitor_index)
+        try:
+            self.monitor_index = self._validate_monitor_index(monitor_index)
+        except Exception:
+            self._sct.close()
+            raise
 
         logger.info(
             "ScreenCapturer initialized. monitor_index=%s, max_fps=%s",
