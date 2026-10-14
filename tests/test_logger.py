@@ -31,6 +31,15 @@ from utils.logger import (
     set_module_status,
     LoggerManager
 )
+from utils.logger import ColoredFormatter
+
+
+class TestColoredFormatter(unittest.TestCase):
+    def test_console_color_does_not_modify_shared_record(self):
+        record = logging.LogRecord("test", logging.INFO, __file__, 1, "message", (), None)
+        ColoredFormatter("%(levelname)s").format(record)
+        self.assertEqual(record.levelname, "INFO")
+        self.assertEqual(logging.Formatter("%(levelname)s").format(record), "INFO")
 
 
 def cleanup_logging():
