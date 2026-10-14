@@ -1,204 +1,56 @@
-# FlowGloss 项目架构说明 (V1.0)
+# FlowGloss V1.0 当前架构
 
-## 项目概述
+本文件描述实际实现；V2/V3 设计稿保留为未来方向。
 
-FlowGloss 是一个基于屏幕监听和AI技术的智能词汇学习助手，通过监听用户屏幕内容，自动识别和提取新词汇，并提供即时翻译和学习功能。
+## 模块分工
 
-## 目录结构
+| 文件 | 当前职责 |
+| --- | --- |
+| main.py | 唯一启动入口、配置与日志初始化 |
+| utils/config_loader.py | 默认/本地 YAML 合并、环境变量、参数校验 |
+| core/models.py | TextBlock、Term、Explanation 数据对象 |
+| core/monitor/event_hook.py | 键鼠事件与稳定状态防抖 |
+| core/worker.py | 固定 Qt 工作线程、截图握手、网络任务取消与资源清理 |
+| core/pipeline.py | 最新任务队列与串行阅读流水线 |
+| core/vision/capturer.py | 多显示器 BGR 截图、DPI、限帧 |
+| core/vision/processor.py | 降采样像素变化判断 |
+| core/vision/ocr_engine.py | RapidOCR CPU 识别与结构化结果 |
+| core/cognition/ranker.py | 去重、已掌握过滤、数量限制 |
+| core/glossary/llm_client.py | 候选提取和解释、JSON 验证、有限重试与整体期限 |
+| data/database.py | SQLite 掌握标记与按语境隔离的解释缓存 |
+| ui/overlay.py | 置顶提示、识别/暂停/退出、反馈 |
 
-```text
-FlowGloss/
-├── main.py                      # 主入口文件
-├── requirements.txt             # 项目依赖说明
-├── requirements-cpu.txt         # CPU版本依赖
-├── requirements-gpu.txt         # GPU版本依赖
-├── install.py                  # 智能安装脚本
-├── README.md                    # 项目说明
-├── .gitignore                   # Git忽略文件
-├── commit_templates.json        # Git提交模板
-├── docs/                        # 项目说明文档
-│   ├── architecture.md          # 架构说明文档（本文件）
-│   ├── project_overview_v1.md  # V1.0项目概览文档
-│   ├── project_overview_v2.md  # V2.0项目概览文档
-│   └── project_overview_v3.md  # V3.0项目概览文档
-├── config/                      # 配置文件目录
-│   ├── settings.yaml            # 系统配置文件
-│   └── prompts.yaml             # 提示词配置文件
-├── core/                        # 核心功能模块
-│   ├── __init__.py
-│   ├── monitor/                 # 监听器模块
-│   │   └── event_hook.py        # 事件监听器
-│   ├── vision/                  # 视觉处理模块
-│   │   └── ocr_engine.py        # OCR引擎
-│   ├── cognition/               # 认知模块
-│   │   ├── ner_worker.py        # NER工作器
-│   │   └── ranker.py            # 排序器
-│   └── glossary/                # 词汇表模块
-│       └── llm_client.py        # LLM客户端
-├── data/                        # 数据模块
-│   └── database.py              # 数据库定义
-├── src/                         # 源代码目录
-│   ├── config.py               # 配置管理
-│   └── main.py                # 主程序入口
-├── tests/                       # 测试目录
-│   ├── test_event_hook.py       # 事件监听器测试
-│   └── test_logger.py          # 日志工具测试
-├── ui/                          # 用户界面模块
-│   ├── __init__.py
-│   └── overlay.py               # 悬浮窗
-├── utils/                       # 工具模块
-│   ├── __init__.py
-│   ├── logger.py                # 日志工具
-│   └── gpu_utils.py             # GPU工具
-└── logs/                        # 日志目录
-    └── flowgloss.log           # 运行日志
-```
+`src/main.py` 与 `src/config.py` 是历史空占位，当前不参与运行。
+`core/cognition/ner_worker.py` 是实验模块，不导入主流程。
+`utils/gpu_utils.py` 仍为未来规划，当前不调用。
 
-## 模块说明
+## 线程与任务生命周期
 
-### 1. 主入口 (main.py)
+GUI 在主线程；监听器回调通过 Qt Signal 通知 GUI。
+工作线程按序初始化和使用截图对象及 OCR，网络调用运行在该线程的 asyncio 事件循环。
+新请求替换待处理任务，并使旧任务编号失效；若旧任务正在等待网络，则取消协程。
+结果到达 GUI 时再次检查任务编号，避免显示过期页面的解释。
 
-- 程序启动入口
-- 初始化各个模块
-- 协调各模块之间的交互
+窗口收到截图请求后隐藏，延迟 150ms 放行截图；截图完成后恢复。
+暂停清空待处理任务、取消网络并停止监听。退出等待工作线程完成，关闭截图对象及数据库。
+OCR 原生推理无法中途取消，所以关闭时可能需要等待当前推理结束。
 
-### 2. 配置模块 (config/)
+## 去重与恢复
 
-- **settings.yaml**: 存储系统配置参数，如API密钥、模型路径、监听设置等
-- **prompts.yaml**: 存储AI模型的提示词模板
+自动任务先比较画面，画面未变化则跳过 OCR；识别文字未变化则跳过 LLM。
+仅在任务成功处理后记录画面和文本，网络/识别错误不会让同一画面永久无法重试。
+手动任务可以重试同一页面，仍会过滤已掌握术语并使用缓存。
 
-### 3. 核心模块 (core/)
+数据库键包含规范化术语、上下文和服务/模型/知识背景/提示词签名。
+每次模型请求最多重试一次暂时性网络错误、429 或 5xx；认证和格式错误不自动重试。
+配置期限覆盖整个请求及重试，不让逐段网络读取无限拖延。
 
-#### 3.1 监听器模块 (monitor/)
+## 尚未实现
 
-- **event_hook.py**: 监听系统事件，如键盘快捷键、鼠标操作等，触发截图和识别流程
+图像拼接、局部增量识别、本地 NER、多进程、GPU 调度、知识图谱、学习历史统计、
+流式解释、系统托盘、点击穿透与高级视觉效果。
 
-#### 3.2 视觉处理模块 (vision/)
+## 实现参考
 
-- **ocr_engine.py**: OCR文字识别引擎，将图像转换为文本（支持GPU加速）
-
-#### 3.3 认知模块 (cognition/)
-
-- **ner_worker.py**: 命名实体识别，从文本中提取词汇和术语
-- **ranker.py**: 词汇排序和筛选，根据重要性和相关性排序
-
-#### 3.4 词汇表模块 (glossary/)
-
-- **llm_client.py**: LLM客户端，调用大语言模型进行翻译和解释（支持异步和流式输出）
-
-### 4. 数据模块 (data/)
-
-- **database.py**: 数据库操作，存储词汇、翻译、学习记录等数据
-
-### 5. 用户界面模块 (ui/)
-
-- **overlay.py**: 悬浮窗界面，显示识别结果和翻译内容
-
-### 6. 工具模块 (utils/)
-
-- **logger.py**: 日志记录工具（支持多级别、模块级别控制、彩色输出）
-- **gpu_utils.py**: GPU加速工具，优化模型推理性能
-
-## 工作流程
-
-1. **监听阶段**: event_hook 监听用户触发事件
-2. **识别阶段**: ocr_engine 识别屏幕文本内容
-3. **提取阶段**: ner_worker 提取关键词汇
-4. **排序阶段**: ranker 对词汇进行重要性排序
-5. **翻译阶段**: llm_client 调用LLM进行翻译和解释
-6. **显示阶段**: overlay 在悬浮窗中显示结果
-7. **存储阶段**: database 保存学习记录
-
-## 技术栈
-
-### 当前实际使用的技术栈
-
-- **编程语言**: Python 3.8+
-- **事件监听**: pynput (全局键盘鼠标事件捕获)
-- **日志工具**: logging (Python标准库)
-- **并发处理**: threading, multiprocessing (Python标准库)
-- **类型系统**: typing (Python标准库)
-- **单元测试**: unittest (Python标准库)
-
-### 计划使用的技术栈（V2.0+）
-
-- **OCR引擎**: PaddleOCR (支持GPU加速)
-- **NER模型**: GLiNER (本地零样本实体识别)
-- **LLM**: OpenAI GPT / Claude / 本地模型
-- **GUI框架**: PySide6 + PyQt-Fluent-Widgets
-- **数据库**: SQLite + Peewee ORM
-- **图像处理**: OpenCV
-- **异步I/O**: httpx
-
-### V3.0计划技术栈
-
-- **语义相似度**: SBERT (Sentence-BERT)
-- **向量检索**: FAISS (CPU/GPU版本)
-- **多语种检测**: FastText
-- **知识图谱**: NetworkX + WordNet
-- **深度学习**: PyTorch (NER模型)
-
-## 开发规范
-
-- 遵循PEP 8代码规范
-- 使用类型注解
-- 编写单元测试
-- 完善的文档注释
-- 版本控制使用Git
-
-## 依赖管理
-
-### 当前依赖状态
-
-- **已实现**: pynput, logging, threading, multiprocessing, unittest, typing, pathlib, datetime, asyncio
-- **计划中**: PaddleOCR, GLiNER, PySide6, httpx, SQLite, Peewee
-- **未实现**: OpenCV, PyTorch, FAISS, FastText, NetworkX, SBERT
-
-### 安装方式
-
-由于PaddleOCR和FAISS存在CPU/GPU版本冲突，请使用以下方式安装：
-
-1. 推荐方式：使用项目提供的安装脚本
-
-   python install.py  # 自动检测硬件并选择合适版本
-
-2. 手动安装：根据你的硬件选择对应的requirements文件
-
-   CPU用户: pip install -r requirements-cpu.txt
-   GPU用户: pip install -r requirements-gpu.txt
-
-3. 分步安装：先安装核心依赖，再根据需要安装GPU依赖
-
-   pip install -r requirements.txt  # 安装核心依赖
-   pip install paddlepaddle-gpu  # GPU用户额外安装
-
-注意事项：
-
-- PaddlePaddle CPU和GPU版本不能同时安装
-
-- FAISS CPU和GPU版本不能同时安装
-- PyTorch和PaddlePaddle可以同时安装，但会占用大量显存
-- 建议使用虚拟环境隔离不同项目的依赖
-
-## 版本规划
-
-### V1.0 (当前阶段）
-
-- 目标：验证核心链路连通性
-
-- 特点：单进程多线程架构，基础功能验证
-- 技术栈：pynput + Python标准库
-
-### V2.0 (下一阶段）
-
-- 目标：引入多进程隔离、本地AI推理和SQLite持久化
-
-- 特点：多进程架构，静默触发，本地NER，知识图谱
-- 技术栈：PaddleOCR + GLiNER + PySide6 + httpx + SQLite
-
-### V3.0 (未来阶段）
-
-- 目标：行为数据挖掘、语义关联网络、自适应学习
-
-- 特点：保持多进程基座，行为校验，多语种支持，动态Prompt
-- 技术栈：PaddleOCR + GLiNER + SBERT + FAISS + FastText + NetworkX
+- [Qt 线程与 QObject](https://doc.qt.io/qtforpython-6.10/overviews/qtdoc-threads-qobject.html)
+- [HTTPX 异步接口](https://www.python-httpx.org/async/) 与 [网络超时](https://www.python-httpx.org/advanced/timeouts/)
